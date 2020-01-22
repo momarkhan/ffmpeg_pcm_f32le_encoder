@@ -1,5 +1,5 @@
 
-# FFMPEF PCM F32LE ENCODER
+# FFMPEG PCM F32LE ENCODER
 
 Expected Input File format: PCM F32LE
 
