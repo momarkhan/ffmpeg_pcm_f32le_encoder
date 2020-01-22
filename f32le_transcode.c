@@ -22,6 +22,7 @@
 
 /*
   Modified By: Omar Khan
+  Original Source: https://github.com/FFmpeg/FFmpeg/blob/master/doc/examples/transcode_aac.c
 */
 
 #include <stdio.h>
