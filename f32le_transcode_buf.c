@@ -47,10 +47,14 @@ struct buffer_data {
     size_t size; ///< size left in the buffer
 };
 
+#define INPUT_SAMPLE_RATE 48000
+#define INPUT_CHANNELS 2
+
 /* The output bit rate in bit/s */
-#define OUTPUT_BIT_RATE 48000
+#define OUTPUT_SAMPLE_RATE 48000
 /* The number of output channels */
 #define OUTPUT_CHANNELS 2
+#define OUTPUT_BIT_RATE 128000
 
 
 static int read_packet(void *opaque, uint8_t *buf, int buf_size)
@@ -130,6 +134,13 @@ static int open_input_file(const char *filename,
         return AVERROR(ENOMEM);
     }
 
+    for (int i = 0; i < (*input_format_context)->nb_streams; i++) 
+    {
+        printf("Overriding input stream %d sample rate and channels\n", i);
+        (*input_format_context)->streams[i]->codecpar->sample_rate = INPUT_SAMPLE_RATE;
+        (*input_format_context)->streams[i]->codecpar->channels = INPUT_CHANNELS;        
+    }
+
     /* Initialize the stream parameters with demuxer information. */
     error = avcodec_parameters_to_context(avctx, (*input_format_context)->streams[0]->codecpar);
     if (error < 0) {
@@ -149,6 +160,8 @@ static int open_input_file(const char *filename,
 
     /* Save the decoder context for easier access later. */
     *input_codec_context = avctx;
+
+    av_dump_format(*input_format_context, 0, filename, 0);
 
     return 0;
 }
@@ -262,6 +275,8 @@ static int open_output_file(const char *filename,
 
     /* Save the encoder context for easier access later. */
     *output_codec_context = avctx;
+
+    av_dump_format(*output_format_context, 0, filename, 1);
 
     return 0;
 
