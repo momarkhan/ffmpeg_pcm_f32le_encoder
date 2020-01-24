@@ -54,8 +54,6 @@ struct buffer_data {
 #define OUTPUT_SAMPLE_RATE 48000
 /* The number of output channels */
 #define OUTPUT_CHANNELS 2
-#define OUTPUT_BIT_RATE 128000
-
 
 static int read_packet(void *opaque, uint8_t *buf, int buf_size)
 {
@@ -134,12 +132,12 @@ static int open_input_file(const char *filename,
         return AVERROR(ENOMEM);
     }
 
-    for (int i = 0; i < (*input_format_context)->nb_streams; i++) 
-    {
-        printf("Overriding input stream %d sample rate and channels\n", i);
-        (*input_format_context)->streams[i]->codecpar->sample_rate = INPUT_SAMPLE_RATE;
-        (*input_format_context)->streams[i]->codecpar->channels = INPUT_CHANNELS;        
-    }
+    printf("Overriding input stream sample rate to %d and channels to %d\n", INPUT_SAMPLE_RATE, INPUT_CHANNELS);
+    AVStream *st = (*input_format_context)->streams[0];
+    //change the timebase denominator to the input sample rate for accuracy
+    st->time_base.den = INPUT_SAMPLE_RATE;
+    st->codecpar->sample_rate = INPUT_SAMPLE_RATE;
+    st->codecpar->channels = INPUT_CHANNELS;            
 
     /* Initialize the stream parameters with demuxer information. */
     error = avcodec_parameters_to_context(avctx, (*input_format_context)->streams[0]->codecpar);
@@ -245,8 +243,6 @@ static int open_output_file(const char *filename,
     avctx->channel_layout = av_get_default_channel_layout(OUTPUT_CHANNELS);
     avctx->sample_rate    = input_codec_context->sample_rate;
     avctx->sample_fmt     = output_codec->sample_fmts[0];
-    avctx->bit_rate       = OUTPUT_BIT_RATE;
-    
 
     /* Allow the use of the experimental AAC encoder. */
     avctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
