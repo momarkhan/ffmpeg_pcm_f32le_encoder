@@ -23,6 +23,8 @@
 /*
   Modified By: Omar Khan
   Original Source: https://github.com/FFmpeg/FFmpeg/blob/master/doc/examples/transcode_aac.c
+  gcc f32le_transcode_buf.c -o f32le_transcode_buf -I/opt/local/include -L/opt/local/lib -lavformat -lavcodec -lavfilter -lavresample -lswresample -lavutil
+
 */
 
 #include <stdio.h>
@@ -66,6 +68,22 @@ static int read_packet(void *opaque, uint8_t *buf, int buf_size)
     bd->size -= buf_size;
     return buf_size;
 }
+
+static int write_packet(void *opaque, uint8_t *buf, int buf_size)
+{
+    printf("writing packet of size:%d\n", buf_size);
+
+    /*
+    for(int i = 0 ; i < buf_size ; i++)
+    {
+        printf("%X", buf[i]);
+    }
+    */
+
+    printf("\n");
+    return 0;
+}
+
 
 /**
  * Open an input file and the required decoder.
@@ -185,28 +203,40 @@ static int open_output_file(const char *filename,
     AVCodec *output_codec          = NULL;
     int error;
 
-    /* Open the output file to write to it. */
-    if ((error = avio_open(&output_io_context, filename,
-                           AVIO_FLAG_WRITE)) < 0) {
-        fprintf(stderr, "Could not open output file '%s' (error '%s')\n",
-                filename, av_err2str(error));
-        return error;
+    if(filename)
+    {
+        /* Open the output file to write to it. */
+        if ((error = avio_open(&output_io_context, filename,
+                               AVIO_FLAG_WRITE)) < 0) {
+            fprintf(stderr, "Could not open output file '%s' (error '%s')\n",
+                    filename, av_err2str(error));
+            return error;
+        }
+        
+        /* Create a new format context for the output container format. */
+        if (!(*output_format_context = avformat_alloc_context())) {
+            fprintf(stderr, "Could not allocate output format context\n");
+            return AVERROR(ENOMEM);
+        }
+        
+        /* Associate the output file (pointer) with the container format context. */
+        (*output_format_context)->pb = output_io_context;
+
+        /* Guess the desired container format based on the file extension. */
+        if (!((*output_format_context)->oformat = av_guess_format(NULL, filename,
+                                                                  NULL))) {
+            fprintf(stderr, "Could not find output file format\n");
+            goto cleanup;
+        }
     }
-
-    /* Create a new format context for the output container format. */
-    if (!(*output_format_context = avformat_alloc_context())) {
-        fprintf(stderr, "Could not allocate output format context\n");
-        return AVERROR(ENOMEM);
-    }
-
-    /* Associate the output file (pointer) with the container format context. */
-    (*output_format_context)->pb = output_io_context;
-
-    /* Guess the desired container format based on the file extension. */
-    if (!((*output_format_context)->oformat = av_guess_format(NULL, filename,
-                                                              NULL))) {
-        fprintf(stderr, "Could not find output file format\n");
-        goto cleanup;
+    else
+    {
+        /* Guess the desired container format based on the file extension. */
+        if (!((*output_format_context)->oformat = av_guess_format(NULL, NULL,
+                                                                  "audio/aac"))) {
+            fprintf(stderr, "Could not find output file format\n");
+            goto cleanup;
+        }
     }
 
     /*
@@ -819,6 +849,7 @@ static int write_output_file_trailer(AVFormatContext *output_format_context)
 
 int main(int argc, char **argv)
 {
+    printf("Starting %d\n", argc);
     AVFormatContext *input_format_context = NULL, *output_format_context = NULL;
     AVCodecContext *input_codec_context = NULL, *output_codec_context = NULL;
     SwrContext *resample_context = NULL;
@@ -828,9 +859,14 @@ int main(int argc, char **argv)
     size_t buffer_size, avio_ctx_buffer_size = 4096;
     struct buffer_data bd = { 0 };
 
-    int ret = AVERROR_EXIT;
+    AVIOContext *avio_out_ctx = NULL;
+    size_t avio_ctx_out_buffer_size = 4096;
+    uint8_t *avio_ctx_out_buffer;
 
-    if (argc != 3) {
+    int ret = AVERROR_EXIT;
+    int total_size = 0;
+
+    if (argc < 2) {
         fprintf(stderr, "Usage: %s <input file> <output file>\n", argv[0]);
         exit(1);
     }
@@ -868,8 +904,32 @@ int main(int argc, char **argv)
     if (open_input_file(NULL, &input_format_context,
                         &input_codec_context))    
         goto cleanup;
+
+    if(argc == 2)
+    {
+        if (!(output_format_context = avformat_alloc_context())) {
+            ret = AVERROR(ENOMEM);
+            goto cleanup;
+        }
+        
+        avio_ctx_out_buffer = av_malloc(avio_ctx_out_buffer_size);
+        if (!avio_ctx_out_buffer) {
+            ret = AVERROR(ENOMEM);
+            goto cleanup;
+        }
+        
+        avio_out_ctx = avio_alloc_context(avio_ctx_out_buffer, avio_ctx_out_buffer_size,
+                                          1, NULL, NULL, &write_packet,  NULL);
+        if (!avio_out_ctx) {
+            ret = AVERROR(ENOMEM);
+            goto cleanup;
+        }
+
+        output_format_context->pb = avio_out_ctx;
+    }
+
     /* Open the output file for writing. */
-    if (open_output_file(argv[2], input_codec_context,
+    if (open_output_file(argc == 3 ? argv[2] : NULL, input_codec_context,
                          &output_format_context, &output_codec_context))
         goto cleanup;
     /* Initialize the resampler to be able to convert audio sample formats. */
@@ -882,7 +942,7 @@ int main(int argc, char **argv)
     /* Write the header of the output file container. */
     if (write_output_file_header(output_format_context))
         goto cleanup;
-
+    
     /* Loop as long as we have input samples to read or output samples
      * to write; abort as soon as we have neither. */
     while (1) {
@@ -941,24 +1001,36 @@ int main(int argc, char **argv)
         goto cleanup;
     ret = 0;
 
-  cleanup:
+  cleanup:    
     if (fifo)
         av_audio_fifo_free(fifo);
     swr_free(&resample_context);
+    
     if (output_codec_context)
         avcodec_free_context(&output_codec_context);
-    if (output_format_context) {
-        avio_closep(&output_format_context->pb);
+
+    if (output_format_context) {        
+        if(argc == 3)
+        {
+            avio_closep(&output_format_context->pb);
+        }
         avformat_free_context(output_format_context);
-    }
+    }    
+
     if (input_codec_context)
         avcodec_free_context(&input_codec_context);
     if (input_format_context)
-        avformat_close_input(&input_format_context);
+        avformat_close_input(&input_format_context);    
 
     av_freep(&avio_ctx->buffer);
     av_freep(&avio_ctx);
     av_file_unmap(buffer, buffer_size);
+
+    if(avio_out_ctx != NULL)
+    {
+        av_freep(&avio_out_ctx->buffer);
+        av_freep(&avio_out_ctx);
+    }
 
     return ret;
 }
